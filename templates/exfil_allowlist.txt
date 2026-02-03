@@ -1,0 +1,4 @@
+# Add approved domains or substrings for data transfers, one per line.
+# Example:
+# corp.example.com
+# s3://company-data-bucket

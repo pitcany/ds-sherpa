@@ -1,0 +1,11 @@
+{
+  "name": "ds-sherpa",
+  "version": "0.1.0",
+  "description": "Data-science workflows: experiments, metrics, SQL, EDA, review + safety hooks.",
+  "author": {
+    "name": "local"
+  },
+  "skills": "./skills",
+  "agents": "./agents",
+  "hooks": "./hooks/hooks.json"
+}
