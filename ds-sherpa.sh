@@ -109,11 +109,14 @@ PLUGIN_DIR="${1:-$HOME/.claude/plugins/ds-sherpa}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-$PLUGIN_DIR/.venv}"
 
-# === Helper functions ===
+# === Helper functions (defined early for use in getopts) ===
 
 echo_err() {
   echo "$@" >&2
 }
+
+# === Resolve repo root (source of truth for all content files) ===
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 fatal() {
   echo_err "ERROR: $*"
@@ -150,6 +153,28 @@ jq_write() {
   local out=$2
   shift 2
   jq "$@" > "$tmp" && mv "$tmp" "$out"
+}
+
+# Inject an MCP server entry into a JSON file if URL is set
+inject_mcp() {
+  local json_file=$1
+  local server_name=$2
+  local url=$3
+  local type=${4:-http}
+  local desc=${5:-"$server_name MCP server"}
+
+  if [[ -z "$url" ]]; then
+    return 0
+  fi
+
+  if [[ $HAS_JQ -eq 1 ]]; then
+    jq_write "${json_file}.tmp" "$json_file" \
+      --arg name "$server_name" --arg url "$url" --arg type "$type" --arg desc "$desc" \
+      '.mcpServers[$name] = {type:$type, url:$url, description:$desc}' \
+      "$json_file"
+  else
+    echo_err "Warning: jq not found; cannot inject $server_name MCP URL"
+  fi
 }
 
 # === Validate Environment ===
@@ -418,7 +443,6 @@ validate_json_file() {
 }
 
 validate_skill_files() {
-  local missing=0
   for domain_dir in "$REPO_ROOT"/skills/*/; do
     for skill_dir in "$domain_dir"/*/; do
       [[ -d "$skill_dir" ]] || continue
@@ -526,9 +550,6 @@ else
 JSON
 fi
 
-# === Resolve repo root (source of truth for all content files) ===
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 if [[ ! -d "$REPO_ROOT/skills" ]]; then
   fatal "Cannot find skills/ directory. Run this script from the cloned ds-sherpa repo."
 fi
@@ -612,22 +633,9 @@ elif [[ "${DS_SHERPA_NOTION_MCP_SSE:-0}" -eq 1 ]]; then
   echo_err "Warning: jq not found; cannot switch Notion MCP to SSE"
 fi
 
-slack_url="${DS_SHERPA_SLACK_MCP_URL:-}"
-if [[ -n "$slack_url" && $HAS_JQ -eq 1 ]]; then
-  jq_write "$PLUGIN_DIR/mcp-servers/.ds-mcp.tmp" "$PLUGIN_DIR/mcp-servers/ds-mcp.json" \
-    --arg url "$slack_url" '.mcpServers.slack = {type:"sse", url:$url, description:"Slack MCP server"}' \
-    "$PLUGIN_DIR/mcp-servers/ds-mcp.json"
-elif [[ -n "$slack_url" ]]; then
-  echo_err "Warning: jq not found; cannot inject Slack MCP URL into ds-mcp.json"
-fi
+inject_mcp "$PLUGIN_DIR/mcp-servers/ds-mcp.json" "slack" "${DS_SHERPA_SLACK_MCP_URL:-}" "sse"
 
 if [[ $MCP_WAREHOUSE -eq 1 ]]; then
-  snowflake_url="${DS_SHERPA_SNOWFLAKE_MCP_URL:-}"
-  databricks_url="${DS_SHERPA_DATABRICKS_MCP_URL:-}"
-  redshift_url="${DS_SHERPA_REDSHIFT_MCP_URL:-}"
-  s3_url="${DS_SHERPA_S3_MCP_URL:-}"
-  gcs_url="${DS_SHERPA_GCS_MCP_URL:-}"
-
   cat > "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json" <<'JSON'
 {
   "mcpServers": {
@@ -640,41 +648,12 @@ if [[ $MCP_WAREHOUSE -eq 1 ]]; then
 }
 JSON
 
-  if [[ -n "$snowflake_url" && $HAS_JQ -eq 1 ]]; then
-    jq_write "$PLUGIN_DIR/mcp-servers/.ds-mcp-warehouses.tmp" "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json" \
-      --arg url "$snowflake_url" '.mcpServers.snowflake = {type:"http", url:$url, description:"Snowflake MCP server"}' \
-      "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json"
-  elif [[ -n "$snowflake_url" ]]; then
-    echo_err "Warning: jq not found; cannot inject Snowflake MCP URL into ds-mcp-warehouses.json"
-  fi
-  if [[ -n "$databricks_url" && $HAS_JQ -eq 1 ]]; then
-    jq_write "$PLUGIN_DIR/mcp-servers/.ds-mcp-warehouses.tmp" "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json" \
-      --arg url "$databricks_url" '.mcpServers.databricks = {type:"http", url:$url, description:"Databricks MCP server"}' \
-      "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json"
-  elif [[ -n "$databricks_url" ]]; then
-    echo_err "Warning: jq not found; cannot inject Databricks MCP URL into ds-mcp-warehouses.json"
-  fi
-  if [[ -n "$redshift_url" && $HAS_JQ -eq 1 ]]; then
-    jq_write "$PLUGIN_DIR/mcp-servers/.ds-mcp-warehouses.tmp" "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json" \
-      --arg url "$redshift_url" '.mcpServers.redshift = {type:"http", url:$url, description:"Redshift MCP server"}' \
-      "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json"
-  elif [[ -n "$redshift_url" ]]; then
-    echo_err "Warning: jq not found; cannot inject Redshift MCP URL into ds-mcp-warehouses.json"
-  fi
-  if [[ -n "$s3_url" && $HAS_JQ -eq 1 ]]; then
-    jq_write "$PLUGIN_DIR/mcp-servers/.ds-mcp-warehouses.tmp" "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json" \
-      --arg url "$s3_url" '.mcpServers.s3 = {type:"http", url:$url, description:"S3 MCP server"}' \
-      "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json"
-  elif [[ -n "$s3_url" ]]; then
-    echo_err "Warning: jq not found; cannot inject S3 MCP URL into ds-mcp-warehouses.json"
-  fi
-  if [[ -n "$gcs_url" && $HAS_JQ -eq 1 ]]; then
-    jq_write "$PLUGIN_DIR/mcp-servers/.ds-mcp-warehouses.tmp" "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json" \
-      --arg url "$gcs_url" '.mcpServers.gcs = {type:"http", url:$url, description:"GCS MCP server"}' \
-      "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json"
-  elif [[ -n "$gcs_url" ]]; then
-    echo_err "Warning: jq not found; cannot inject GCS MCP URL into ds-mcp-warehouses.json"
-  fi
+  wh_json="$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json"
+  inject_mcp "$wh_json" "snowflake"  "${DS_SHERPA_SNOWFLAKE_MCP_URL:-}"
+  inject_mcp "$wh_json" "databricks" "${DS_SHERPA_DATABRICKS_MCP_URL:-}"
+  inject_mcp "$wh_json" "redshift"   "${DS_SHERPA_REDSHIFT_MCP_URL:-}"
+  inject_mcp "$wh_json" "s3"         "${DS_SHERPA_S3_MCP_URL:-}"
+  inject_mcp "$wh_json" "gcs"        "${DS_SHERPA_GCS_MCP_URL:-}"
 
   validate_json_file "$PLUGIN_DIR/mcp-servers/ds-mcp-warehouses.json" "ds-mcp-warehouses.json"
 fi
