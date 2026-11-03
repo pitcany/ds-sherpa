@@ -1,3 +1,8 @@
+> **Archived 2026-11-03.** This plugin is read-only and no longer maintained.
+> Its statistical review skills are superseded by [pitcany/statistical-agent-skills](https://github.com/pitcany/statistical-agent-skills) (MIT), which is maintained.
+> Triage: pitcananalytics statistical-workflow audit, [§3.13](https://github.com/pitcany/pitcananalytics/blob/main/docs/audits/2026-11-02-statistical-workflow-audit.md).
+> No LICENSE file was ever added, so no open-source licence is granted for this code.
+
 # ds-sherpa
 
 A Claude Code plugin for data science workflows: experiments, metrics, SQL, EDA, review, and safety hooks.
